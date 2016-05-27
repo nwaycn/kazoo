@@ -277,3 +277,26 @@ curl -v -X PATCH \
     "status": "error"
 }
 ```
+
+
+#### List available tasks
+
+> GET /v2/accounts/{ACCOUNT_ID}/tasks/help
+
+```shell
+curl -v -X GET \
+    -H "X-Auth-Token: {AUTH_TOKEN}" \
+    http://{SERVER}:8000/v2/accounts/{ACCOUNT_ID}/tasks/help
+```
+
+```json
+{
+    "auth_token": "{AUTH_TOKEN}",
+    "data": {
+        "tasks": {}
+    },
+    "request_id": "075e270c7855f8b9e754e68e9bcd22e0",
+    "revision": "undefined",
+    "status": "success"
+}
+```

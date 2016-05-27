@@ -11,6 +11,7 @@
 
 %% Public API
 -export([start_link/0]).
+-export([available/0]).
 -export([new/4
         ,start/1
         ,read/1
@@ -18,7 +19,7 @@
         ,remove/1
 	]).
 
-%% API use by workers
+%% API used by workers
 -export([worker_finished/1
         ,worker_failed/2
         ]).
@@ -60,6 +61,8 @@
 
 
 -record(state, { tasks = [] :: tasks()
+               , apis = kz_json:new() :: kz_json:object()
+               , modules = #{} :: map()
                }).
 -type state() :: #state{}.
 
@@ -83,6 +86,30 @@ start_link() ->
             'true' = link(Pid),
             {'ok', Pid};
         Other -> Other
+    end.
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec available() -> kz_json:object().
+available() ->
+    case kz_amqp_worker:call_collect(kz_api:default_headers(?APP_NAME, ?APP_VERSION)
+                                    ,fun kapi_tasks:publish_help_req/1
+                                    ,fun kapi_tasks:help_resp_v/1
+                                    )
+    of
+        {'ok', JObjs} ->
+            lager:debug("help_req got ~p replies", [length(JObjs)]),
+            {Modules, APIs} = parse_apis(JObjs),
+            gen_server:call(?SERVER, {'replace_APIs', Modules, APIs});
+        {'timeout', []} ->
+            lager:debug("no app replied to help_req"),
+            kz_json:new();
+        {'error', _Reason} ->
+            lager:error("error in broadcasted help_req: ~p", [_Reason]),
+            kz_json:new()
     end.
 
 %%--------------------------------------------------------------------
@@ -235,6 +262,12 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_call({'replace_APIs', Modules, APIs}, _From, State) ->
+    State1 = State#state{ apis = APIs
+                        , modules = Modules
+                        },
+    {'reply', APIs, State1};
+
 handle_call({'start_task', TaskId}, _From, State) ->
     case task_by_id(TaskId, State) of
         [] ->
@@ -568,5 +601,20 @@ check_MFa(M, F, Arity) ->
                 'true' -> 'ok'
             end
     end.
+
+-type m_apis() :: {map(), kz_json:object()}.
+-spec parse_apis(kz_json:objects()) -> m_apis().
+parse_apis(JObjs) ->
+    Acc0 = {#{}, kz_json:new()},
+    lists:foldl(fun parse_apis_fold/2, Acc0, JObjs).
+
+-spec parse_apis_fold(kz_json:object(), m_apis()) -> m_apis().
+parse_apis_fold(JObj, {Modules, APIs}) ->
+    CategoryName   = kz_json:get_value(<<"Tasks-For">>, JObj),
+    CategoryModule = kz_json:get_value(<<"Tasks-Module">>, JObj),
+    CategoryTasks  = kz_json:get_value(<<"Tasks">>, JObj),
+    NewModules = Modules#{CategoryName => CategoryModule},
+    NewAPIs = kz_json:set_value(CategoryName, CategoryTasks, APIs),
+    {NewModules, NewAPIs}.
 
 %%% End of Module.
